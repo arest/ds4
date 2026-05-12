@@ -1,0 +1,46 @@
+# compose.yml
+#
+# Docker Compose for ds4.c (DeepSeek V4 Flash inference engine).
+#
+# Builds the CUDA 12.8 image and runs ds4-server with a shared model
+# directory.  Adjust volumes, ports, and command-line flags below.
+#
+# Usage
+# -----
+#
+#   docker compose build
+#   docker compose up
+#
+# Or rebuild and start in one step:
+#
+#   docker compose up --build
+#
+# To pass custom flags to ds4-server:
+#
+#   docker compose run --rm ds4 \
+#     /ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192 -m /models/ds4flash.gguf
+
+services:
+  ds4:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cuda
+    image: ds4-cuda
+    container_name: ds4-server
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount your GGUF model directory.  Change the left side to point
+      # at your local model folder, or override via an environment variable.
+      - ./gguf:/models
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              driver: nvidia
+    # Note: --gpus / NVIDIA GPU access is currently a no-op until the
+    # CUDA backend ships. The runtime + deploy block is kept so that
+    # the CUDA libraries are available in the container when needed.
+    command: ["--ctx", "32768", "-m", "/models/ds4flash.gguf"]

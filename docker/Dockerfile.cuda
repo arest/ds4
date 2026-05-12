@@ -1,0 +1,70 @@
+# docker/Dockerfile.cuda
+#
+# CUDA 12.8 build for ds4.c (DeepSeek V4 Flash inference engine).
+#
+# The engine is currently Metal-only, but it compiles on Linux with the CPU
+# fallback path (DS4_NO_METAL).  This image provides the full CUDA 12.8
+# toolchain so that ds4.c can link against CUDA at runtime when the CUDA
+# backend ships.
+#
+# Usage
+# -----
+#
+#   docker build -t ds4-cuda -f docker/Dockerfile.cuda .
+#
+#   # Run the server with a shared model directory:
+#   docker run --gpus all -v /path/to/models:/models -p 8000:8000 ds4-cuda
+#
+#   # Override the model path and context window:
+#   docker run --gpus all \
+#     -v /path/to/models:/models \
+#     -p 8000:8000 \
+#     ds4-cuda \
+#     /ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192 -m /models/ds4flash.gguf
+#
+#   # Run the CLI instead of the server:
+#   docker run --rm -it --gpus all -v /path/to/models:/models ds4-cuda /ds4 -n 128 -p "Hello, world!"
+#
+# The host directory mounted at /models should contain the GGUF model file(s)
+# (see download_model.sh to fetch them).
+
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04 AS build
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+
+# Build all targets.  DS4_NO_METAL is set automatically by the Makefile
+# when not on Darwin (see the else branch), so on Linux we get the CPU
+# reference/compatibility path.
+RUN make -j$(nproc)
+
+# -------------------------------------------------------------------
+# Minimal runtime image
+# -------------------------------------------------------------------
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04 AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binaries from the build stage.
+COPY --from=build /src/ds4       /ds4
+COPY --from=build /src/ds4-server /ds4-server
+
+# Shared model volume – mount your GGUF files here.
+VOLUME /models
+
+EXPOSE 8000
+
+WORKDIR /
+
+ENTRYPOINT ["/ds4-server"]
+CMD ["--ctx", "32768", "-m", "/models/ds4flash.gguf"]

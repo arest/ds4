@@ -480,6 +480,80 @@ The cache directory is disposable. If behavior looks suspicious, stop the
 server and remove it. You can investigate what is cached with hexdump as
 the kv cache files include the verbatim prompt cached.
 
+## Docker / CUDA
+
+A CUDA 12.8 Docker image is available at `docker/Dockerfile.cuda`. It
+builds the engine on Linux (CPU fallback path) with the full CUDA 12.8
+toolchain installed, ready for when the CUDA backend ships.
+
+A `compose.yml` at the project root provides a ready-to-use Docker
+Compose setup pointing at this Dockerfile.
+
+### Build
+
+```sh
+docker build -t ds4-cuda -f docker/Dockerfile.cuda .
+```
+
+Or via Compose:
+
+```sh
+docker compose build
+```
+
+### Run the server
+
+```sh
+docker run --gpus all \
+  -v /path/to/models:/models \
+  -p 8000:8000 \
+  ds4-cuda
+```
+
+Or via Compose:
+
+```sh
+docker compose up --build   # rebuild and start
+docker compose up           # start existing image
+```
+
+Mount your GGUF model directory at `/models` and expose port 8000:
+
+```sh
+docker run --gpus all \
+  -v /path/to/models:/models \
+  -p 8000:8000 \
+  ds4-cuda
+```
+
+The default command starts `ds4-server` with `--ctx 32768` and loads the
+model from `/models/ds4flash.gguf`.
+
+### Custom flags
+
+Override the entrypoint to pass your own arguments:
+
+```sh
+docker run --gpus all \
+  -v /path/to/models:/models \
+  -p 8000:8000 \
+  ds4-cuda \
+  /ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192 -m /models/ds4flash.gguf
+```
+
+### CLI inside the container
+
+```sh
+docker run --rm -it --gpus all -v /path/to/models:/models ds4-cuda /ds4 -n 128 -p "What is Redis?"
+```
+
+> **Note:** The Docker image uses the CPU fallback path (`DS4_NO_METAL`).
+> Inference will be slow compared to the native Metal build on macOS.
+> The CUDA toolchain is included so that ds4.c can link against CUDA at
+> runtime once the CUDA backend is implemented. The `--gpus all` flag is
+> a no-op for now but ensures the CUDA runtime libraries can be used in
+> future.
+
 ## Backends
 
 The default backend is Metal:
